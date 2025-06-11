@@ -31,11 +31,24 @@ func (tmp *trafficManagerProvider) GetResource(ctx context.Context) (*schema.Res
 
 	for _, profile := range *profiles {
 		if profile.ProfileProperties != nil && profile.ProfileProperties.DNSConfig != nil && profile.ProfileProperties.DNSConfig.Fqdn != nil {
+			// Extract metadata
+			tags := make(map[string]string)
+			if profile.Tags != nil {
+				for k, v := range profile.Tags {
+					if v != nil {
+						tags[k] = *v
+					}
+				}
+			}
+
 			resource := &schema.Resource{
-				Provider: providerName,
-				ID:       tmp.id,
-				DNSName:  *profile.ProfileProperties.DNSConfig.Fqdn,
-				Service:  tmp.name(),
+				Provider:       providerName,
+				ID:             tmp.id,
+				DNSName:        *profile.ProfileProperties.DNSConfig.Fqdn,
+				Service:        tmp.name(),
+				SubscriptionID: tmp.SubscriptionID,
+				Tags:           tags,
+				Name:           *profile.Name,
 			}
 			list.Append(resource)
 		}

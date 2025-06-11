@@ -3,6 +3,8 @@ package gcp
 import (
 	"context"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 	"github.com/projectdiscovery/gologger"
@@ -79,19 +81,19 @@ func New(options schema.OptionBlock) (*Provider, error) {
 
 	creds, err := register(context.Background(), []byte(JSONData))
 	if err != nil {
-		return nil, errorutil.NewWithErr(err).Msgf("could not register gcp service account")
+		return nil, FormatGCPError(err)
 	}
 	if services.Has("dns") {
 		dnsService, err := dns.NewService(context.Background(), creds)
 		if err != nil {
-			return nil, errorutil.NewWithErr(err).Msgf("could not create dns service with api key")
+			return nil, FormatGCPError(err)
 		}
 		provider.dns = dnsService
 	}
 	if services.Has("compute") {
 		computeService, err := compute.NewService(context.Background(), creds)
 		if err != nil {
-			return nil, errorutil.NewWithErr(err).Msgf("could not create compute service with api key")
+			return nil, FormatGCPError(err)
 		}
 		provider.compute = computeService
 	}
@@ -99,7 +101,7 @@ func New(options schema.OptionBlock) (*Provider, error) {
 	if services.Has("gke") {
 		containerService, err := container.NewService(context.Background(), creds)
 		if err != nil {
-			return nil, errorutil.NewWithErr(err).Msgf("could not create container service with api key")
+			return nil, FormatGCPError(err)
 		}
 		provider.gke = containerService
 	}
@@ -107,14 +109,14 @@ func New(options schema.OptionBlock) (*Provider, error) {
 	if services.Has("s3") {
 		storageService, err := storage.NewService(context.Background(), creds)
 		if err != nil {
-			return nil, errorutil.NewWithErr(err).Msgf("could not create storage service with api key")
+			return nil, FormatGCPError(err)
 		}
 		provider.storage = storageService
 	}
 	if services.Has("cloud-function") {
 		functionsService, err := cloudfunctions.NewService(context.Background(), creds)
 		if err != nil {
-			return nil, errorutil.NewWithErr(err).Msgf("could not create functions service with api key")
+			return nil, FormatGCPError(err)
 		}
 		provider.functions = functionsService
 	}
@@ -122,7 +124,7 @@ func New(options schema.OptionBlock) (*Provider, error) {
 	if services.Has("cloud-run") {
 		cloudRunService, err := run.NewService(context.Background(), creds)
 		if err != nil {
-			return nil, errorutil.NewWithErr(err).Msgf("could not create cloud run service with api key")
+			return nil, FormatGCPError(err)
 		}
 		provider.run = cloudRunService
 	}
@@ -130,7 +132,7 @@ func New(options schema.OptionBlock) (*Provider, error) {
 	projects := []string{}
 	manager, err := cloudresourcemanager.NewService(context.Background(), creds)
 	if err != nil {
-		return nil, errorutil.NewWithErr(err).Msgf("could not list projects")
+		return nil, FormatGCPError(err)
 	}
 	list := manager.Projects.List()
 	err = list.Pages(context.Background(), func(resp *cloudresourcemanager.ListProjectsResponse) error {
@@ -139,66 +141,111 @@ func New(options schema.OptionBlock) (*Provider, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, FormatGCPError(err)
+	}
 	provider.projects = projects
-	return provider, err
+	return provider, nil
 }
 
 // Resources returns the provider for an resource deployment source.
 func (p *Provider) Resources(ctx context.Context) (*schema.Resources, error) {
-	finalResources := schema.NewResources()
+	// Create a timeout context
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
-	if p.dns != nil {
-		cloudDNSProvider := &cloudDNSProvider{dns: p.dns, id: p.id, projects: p.projects}
-		zones, err := cloudDNSProvider.GetResource(ctx)
+	finalResources := schema.NewResources()
+	var wg sync.WaitGroup
+	resourcesChan := make(chan *schema.Resources, 6) // Buffer for all services
+	errorsChan := make(chan error, 6)
+
+	// Helper function to fetch resources for a provider
+	fetchResources := func(fetch func(context.Context) (*schema.Resources, error)) {
+		defer wg.Done()
+		resources, err := fetch(ctx)
 		if err != nil {
-			return nil, err
+			errorsChan <- err
+			return
 		}
-		finalResources.Merge(zones)
+		if resources != nil {
+			resourcesChan <- resources
+		}
+	}
+
+	// Start a goroutine for each enabled service
+	if p.dns != nil {
+		wg.Add(1)
+		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
+			cloudDNSProvider := &cloudDNSProvider{dns: p.dns, id: p.id, projects: p.projects}
+			return cloudDNSProvider.GetResource(ctx)
+		})
 	}
 
 	if p.gke != nil {
-		GKEProvider := &gkeProvider{svc: p.gke, id: p.id, projects: p.projects}
-		gkeData, err := GKEProvider.GetResource(ctx)
-		if err != nil {
-			gologger.Warning().Msgf("Could not get GKE resources: %s\n", err)
-		}
-		finalResources.Merge(gkeData)
+		wg.Add(1)
+		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
+			GKEProvider := &gkeProvider{svc: p.gke, id: p.id, projects: p.projects}
+			return GKEProvider.GetResource(ctx)
+		})
 	}
 
 	if p.compute != nil {
-		VMProvider := &cloudVMProvider{compute: p.compute, id: p.id, projects: p.projects}
-		vmData, err := VMProvider.GetResource(ctx)
-		if err != nil {
-			return nil, err
-		}
-		finalResources.Merge(vmData)
+		wg.Add(1)
+		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
+			VMProvider := &cloudVMProvider{compute: p.compute, id: p.id, projects: p.projects}
+			return VMProvider.GetResource(ctx)
+		})
 	}
 
 	if p.storage != nil {
-		cloudStorageProvider := &cloudStorageProvider{id: p.id, storage: p.storage, projects: p.projects}
-		storageData, err := cloudStorageProvider.GetResource(ctx)
-		if err != nil {
-			return nil, err
-		}
-		finalResources.Merge(storageData)
+		wg.Add(1)
+		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
+			cloudStorageProvider := &cloudStorageProvider{id: p.id, storage: p.storage, projects: p.projects}
+			return cloudStorageProvider.GetResource(ctx)
+		})
 	}
 
 	if p.functions != nil {
-		cloudFunctionsProvider := &cloudFunctionsProvider{id: p.id, functions: p.functions, projects: p.projects}
-		functionsData, err := cloudFunctionsProvider.GetResource(ctx)
-		if err != nil {
-			return nil, err
-		}
-		finalResources.Merge(functionsData)
+		wg.Add(1)
+		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
+			cloudFunctionsProvider := &cloudFunctionsProvider{id: p.id, functions: p.functions, projects: p.projects}
+			return cloudFunctionsProvider.GetResource(ctx)
+		})
 	}
 
 	if p.run != nil {
-		cloudRunProvider := &cloudRunProvider{id: p.id, run: p.run, projects: p.projects}
-		cloudRunData, err := cloudRunProvider.GetResource(ctx)
+		wg.Add(1)
+		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
+			cloudRunProvider := &cloudRunProvider{id: p.id, run: p.run, projects: p.projects}
+			return cloudRunProvider.GetResource(ctx)
+		})
+	}
+
+	// Wait for all goroutines to complete in a separate goroutine
+	go func() {
+		wg.Wait()
+		close(resourcesChan)
+		close(errorsChan)
+	}()
+
+	// Collect errors
+	var errors []error
+	for err := range errorsChan {
 		if err != nil {
-			return nil, err
+			errors = append(errors, err)
 		}
-		finalResources.Merge(cloudRunData)
+	}
+
+	// Merge all resources
+	for resources := range resourcesChan {
+		if resources != nil {
+			finalResources.Merge(resources)
+		}
+	}
+
+	// If we have any errors, log them as warnings but continue
+	for _, err := range errors {
+		gologger.Warning().Msgf("Error fetching resources: %s", FormatGCPError(err))
 	}
 
 	return finalResources, nil
@@ -241,7 +288,7 @@ func (p *Provider) Verify(ctx context.Context) error {
 		}
 	}
 	if err != nil {
-		return errorutil.NewWithErr(err).Msgf("failed to verify GCP services")
+		return FormatGCPError(err)
 	}
 	return errorutil.New("no accessible GCP services found with provided credentials")
 }

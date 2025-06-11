@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 )
 
@@ -52,6 +53,14 @@ func (i *instanceProvider) GetResource(ctx context.Context) (*schema.Resources, 
 func (i *instanceProvider) getEC2Resources(ec2Client *ec2.EC2) (*schema.Resources, error) {
 	list := schema.NewResources()
 
+	// Get account ID from STS
+	stsClient := sts.New(i.session)
+	identity, err := stsClient.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, err
+	}
+	accountID := aws.StringValue(identity.Account)
+
 	req := &ec2.DescribeInstancesInput{
 		MaxResults: aws.Int64(1000),
 	}
@@ -67,6 +76,14 @@ func (i *instanceProvider) getEC2Resources(ec2Client *ec2.EC2) (*schema.Resource
 				ip6 := aws.StringValue(instance.Ipv6Address)
 				privateIp4 := aws.StringValue(instance.PrivateIpAddress)
 
+				// Convert EC2 tags to map
+				tags := make(map[string]string)
+				for _, tag := range instance.Tags {
+					if tag.Key != nil && tag.Value != nil {
+						tags[*tag.Key] = *tag.Value
+					}
+				}
+
 				if privateIp4 != "" {
 					list.Append(&schema.Resource{
 						ID:          i.options.Id,
@@ -74,6 +91,13 @@ func (i *instanceProvider) getEC2Resources(ec2Client *ec2.EC2) (*schema.Resource
 						PrivateIpv4: privateIp4,
 						Public:      false,
 						Service:     i.name(),
+						AccountID:   accountID,
+						Region:      aws.StringValue(instance.Placement.AvailabilityZone),
+						Tags:        tags,
+						Name:        getNameFromTags(instance.Tags),
+						Type:        aws.StringValue(instance.InstanceType),
+						Status:      aws.StringValue(instance.State.Name),
+						CreatedAt:   aws.TimeValue(instance.LaunchTime).String(),
 					})
 				}
 				list.Append(&schema.Resource{
@@ -83,6 +107,13 @@ func (i *instanceProvider) getEC2Resources(ec2Client *ec2.EC2) (*schema.Resource
 					PublicIPv6: ip6,
 					Public:     true,
 					Service:    i.name(),
+					AccountID:  accountID,
+					Region:     aws.StringValue(instance.Placement.AvailabilityZone),
+					Tags:       tags,
+					Name:       getNameFromTags(instance.Tags),
+					Type:       aws.StringValue(instance.InstanceType),
+					Status:     aws.StringValue(instance.State.Name),
+					CreatedAt:  aws.TimeValue(instance.LaunchTime).String(),
 				})
 			}
 		}
@@ -92,6 +123,16 @@ func (i *instanceProvider) getEC2Resources(ec2Client *ec2.EC2) (*schema.Resource
 		req.SetNextToken(aws.StringValue(resp.NextToken))
 	}
 	return list, nil
+}
+
+// Helper function to extract Name from EC2 tags
+func getNameFromTags(tags []*ec2.Tag) string {
+	for _, tag := range tags {
+		if aws.StringValue(tag.Key) == "Name" {
+			return aws.StringValue(tag.Value)
+		}
+	}
+	return ""
 }
 
 func (i *instanceProvider) getEc2Clients(region *string) []*ec2.EC2 {

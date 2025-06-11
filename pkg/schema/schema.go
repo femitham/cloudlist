@@ -63,11 +63,20 @@ func init() {
 }
 
 // appendResourceWithTypeAndMeta appends a resource with a type and metadata
-func (r *Resources) appendResourceWithTypeAndMeta(resourceType validate.ResourceType, item, id, provider, service string) {
+func (r *Resources) appendResourceWithTypeAndMeta(resourceType validate.ResourceType, item, id, provider, service string, originalResource *Resource) {
 	resource := &Resource{
-		Provider: provider,
-		ID:       id,
-		Service:  service,
+		Provider:       provider,
+		ID:             id,
+		Service:        service,
+		SubscriptionID: originalResource.SubscriptionID,
+		Region:         originalResource.Region,
+		Zone:           originalResource.Zone,
+		Tags:           originalResource.Tags,
+		Name:           originalResource.Name,
+		Type:           originalResource.Type,
+		Status:         originalResource.Status,
+		CreatedAt:      originalResource.CreatedAt,
+		UpdatedAt:      originalResource.UpdatedAt,
 	}
 	switch resourceType {
 	case validate.DNSName:
@@ -93,31 +102,31 @@ func (r *Resources) appendResourceWithTypeAndMeta(resourceType validate.Resource
 func (r *Resources) appendResource(resource *Resource) {
 	if resource.DNSName != "" && !r.deduplicator.Contains(resource.DNSName) {
 		resourceType := validator.Identify(resource.DNSName)
-		r.appendResourceWithTypeAndMeta(resourceType, resource.DNSName, resource.ID, resource.Provider, resource.Service)
+		r.appendResourceWithTypeAndMeta(resourceType, resource.DNSName, resource.ID, resource.Provider, resource.Service, resource)
 		r.deduplicator.Add(resource.DNSName)
 	}
 
 	if resource.PublicIPv4 != "" && !r.deduplicator.Contains(resource.PublicIPv4) {
 		resourceType := validator.Identify(resource.PublicIPv4)
-		r.appendResourceWithTypeAndMeta(resourceType, resource.PublicIPv4, resource.ID, resource.Provider, resource.Service)
+		r.appendResourceWithTypeAndMeta(resourceType, resource.PublicIPv4, resource.ID, resource.Provider, resource.Service, resource)
 		r.deduplicator.Add(resource.PublicIPv4)
 	}
 
 	if resource.PublicIPv6 != "" && !r.deduplicator.Contains(resource.PublicIPv6) {
 		resourceType := validator.Identify(resource.PublicIPv6)
-		r.appendResourceWithTypeAndMeta(resourceType, resource.PublicIPv6, resource.ID, resource.Provider, resource.Service)
+		r.appendResourceWithTypeAndMeta(resourceType, resource.PublicIPv6, resource.ID, resource.Provider, resource.Service, resource)
 		r.deduplicator.Add(resource.PublicIPv6)
 	}
 
 	if resource.PrivateIpv4 != "" && !r.deduplicator.Contains(resource.PrivateIpv4) {
 		resourceType := validator.Identify(resource.PrivateIpv4)
-		r.appendResourceWithTypeAndMeta(resourceType, resource.PrivateIpv4, resource.ID, resource.Provider, resource.Service)
+		r.appendResourceWithTypeAndMeta(resourceType, resource.PrivateIpv4, resource.ID, resource.Provider, resource.Service, resource)
 		r.deduplicator.Add(resource.PrivateIpv4)
 	}
 
 	if resource.PrivateIpv6 != "" && !r.deduplicator.Contains(resource.PrivateIpv6) {
 		resourceType := validator.Identify(resource.PrivateIpv6)
-		r.appendResourceWithTypeAndMeta(resourceType, resource.PrivateIpv6, resource.ID, resource.Provider, resource.Service)
+		r.appendResourceWithTypeAndMeta(resourceType, resource.PrivateIpv6, resource.ID, resource.Provider, resource.Service, resource)
 		r.deduplicator.Add(resource.PrivateIpv6)
 	}
 }
@@ -157,6 +166,28 @@ type Resource struct {
 	PrivateIpv6 string `json:"private_ipv6,omitempty"`
 	// DNSName is the DNS name of the resource
 	DNSName string `json:"dns_name,omitempty"`
+	// ProjectID is the cloud provider project ID (e.g. GCP project ID)
+	ProjectID string `json:"project_id,omitempty"`
+	// SubscriptionID is the cloud provider subscription ID (e.g. Azure subscription ID)
+	SubscriptionID string `json:"subscription_id,omitempty"`
+	// AccountID is the cloud provider account ID (e.g. AWS account ID)
+	AccountID string `json:"account_id,omitempty"`
+	// Region is the cloud provider region
+	Region string `json:"region,omitempty"`
+	// Zone is the cloud provider zone/availability zone
+	Zone string `json:"zone,omitempty"`
+	// Tags contains resource tags as key-value pairs
+	Tags map[string]string `json:"tags,omitempty"`
+	// Name is the resource name
+	Name string `json:"name,omitempty"`
+	// Type is the resource type
+	Type string `json:"type,omitempty"`
+	// Status is the resource status
+	Status string `json:"status,omitempty"`
+	// CreatedAt is the resource creation timestamp
+	CreatedAt string `json:"created_at,omitempty"`
+	// UpdatedAt is the resource last update timestamp
+	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
 // ErrNoSuchKey means no such key exists in metadata.

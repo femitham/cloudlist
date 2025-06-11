@@ -29,7 +29,7 @@ func (d *cloudDNSProvider) GetResource(ctx context.Context) (*schema.Resources, 
 			for _, z := range resp.ManagedZones {
 				resources := d.dns.ResourceRecordSets.List(project, z.Name)
 				err := resources.Pages(context.Background(), func(r *dns.ResourceRecordSetsListResponse) error {
-					items := d.parseRecordsForResourceSet(r)
+					items := d.parseRecordsForResourceSet(r, project, z)
 					list.Merge(items)
 					return nil
 				})
@@ -49,7 +49,7 @@ func (d *cloudDNSProvider) GetResource(ctx context.Context) (*schema.Resources, 
 }
 
 // parseRecordsForResourceSet parses and returns the records for a resource set
-func (d *cloudDNSProvider) parseRecordsForResourceSet(r *dns.ResourceRecordSetsListResponse) *schema.Resources {
+func (d *cloudDNSProvider) parseRecordsForResourceSet(r *dns.ResourceRecordSetsListResponse, project string, zone *dns.ManagedZone) *schema.Resources {
 	list := schema.NewResources()
 
 	for _, resource := range r.Rrsets {
@@ -58,12 +58,21 @@ func (d *cloudDNSProvider) parseRecordsForResourceSet(r *dns.ResourceRecordSetsL
 		}
 
 		for _, data := range resource.Rrdatas {
+			// Extract tags from zone labels
+			tags := make(map[string]string)
+			for k, v := range zone.Labels {
+				tags[k] = v
+			}
+
 			dst := &schema.Resource{
-				DNSName:  resource.Name,
-				Public:   true,
-				ID:       d.id,
-				Provider: providerName,
-				Service:  d.name(),
+				DNSName:   resource.Name,
+				Public:    true,
+				ID:        d.id,
+				Provider:  providerName,
+				Service:   d.name(),
+				ProjectID: project,
+				Name:      zone.Name,
+				Tags:      tags,
 			}
 
 			//nolint

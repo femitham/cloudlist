@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/pkg/errors"
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 )
@@ -49,6 +50,15 @@ func (s *s3Provider) GetResource(ctx context.Context) (*schema.Resources, error)
 
 func (s *s3Provider) getS3Resources(s3Client *s3.S3) (*schema.Resources, error) {
 	list := schema.NewResources()
+
+	// Get account ID from STS
+	stsClient := sts.New(s.session)
+	identity, err := stsClient.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, errors.Wrap(err, "could not get account ID")
+	}
+	accountID := aws.StringValue(identity.Account)
+
 	req := &s3.ListBucketsInput{}
 	listBucketsOutput, err := s3Client.ListBuckets(req)
 	if err != nil {
@@ -56,12 +66,44 @@ func (s *s3Provider) getS3Resources(s3Client *s3.S3) (*schema.Resources, error) 
 	}
 
 	for _, bucket := range listBucketsOutput.Buckets {
+		bucketName := aws.StringValue(bucket.Name)
+
+		// Get bucket location/region
+		locInput := &s3.GetBucketLocationInput{
+			Bucket: aws.String(bucketName),
+		}
+		locOutput, err := s3Client.GetBucketLocation(locInput)
+		region := "us-east-1" // Default region if not specified
+		if err == nil && locOutput.LocationConstraint != nil {
+			region = aws.StringValue(locOutput.LocationConstraint)
+		}
+
+		// Get bucket tags
+		tags := make(map[string]string)
+		tagInput := &s3.GetBucketTaggingInput{
+			Bucket: aws.String(bucketName),
+		}
+		if tagOutput, err := s3Client.GetBucketTagging(tagInput); err == nil {
+			for _, tag := range tagOutput.TagSet {
+				if tag.Key != nil && tag.Value != nil {
+					tags[*tag.Key] = *tag.Value
+				}
+			}
+		}
+
 		list.Append(&schema.Resource{
-			ID:       s.options.Id,
-			Public:   true,
-			DNSName:  fmt.Sprintf("%s.s3.amazonaws.com", aws.StringValue(bucket.Name)),
-			Provider: providerName,
-			Service:  s.name(),
+			ID:        s.options.Id,
+			Public:    true,
+			DNSName:   fmt.Sprintf("%s.s3.amazonaws.com", bucketName),
+			Provider:  providerName,
+			Service:   s.name(),
+			AccountID: accountID,
+			Region:    region,
+			Tags:      tags,
+			Name:      bucketName,
+			Type:      "s3-bucket",
+			Status:    "Active", // S3 buckets are always active when listed
+			CreatedAt: aws.TimeValue(bucket.CreationDate).String(),
 		})
 	}
 	return list, nil

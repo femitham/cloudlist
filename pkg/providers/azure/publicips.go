@@ -21,7 +21,6 @@ func (pip *publicIPProvider) name() string {
 
 // GetResource returns all the resources in the store for a provider.
 func (pip *publicIPProvider) GetResource(ctx context.Context) (*schema.Resources, error) {
-
 	list := schema.NewResources()
 
 	ips, err := pip.fetchPublicIPs(ctx)
@@ -36,11 +35,31 @@ func (pip *publicIPProvider) GetResource(ctx context.Context) (*schema.Resources
 			continue
 		}
 
+		// Extract metadata
+		tags := make(map[string]string)
+		if ip.Tags != nil {
+			for k, v := range ip.Tags {
+				if v != nil {
+					tags[k] = *v
+				}
+			}
+		}
+
 		resource := &schema.Resource{
-			Provider: providerName,
-			ID:       pip.id,
-			Public:   true,
-			Service:  pip.name(),
+			Provider:       providerName,
+			ID:             pip.id,
+			Public:         true,
+			Service:        pip.name(),
+			SubscriptionID: pip.SubscriptionID,
+			Region:         *ip.Location,
+			Tags:           tags,
+			Name:           *ip.Name,
+			Type:           *ip.Type,
+			Status:         string(ip.ProvisioningState),
+		}
+
+		if ip.DNSSettings != nil && ip.DNSSettings.Fqdn != nil {
+			resource.DNSName = *ip.DNSSettings.Fqdn
 		}
 
 		if ip.PublicIPAddressVersion == network.IPv4 {

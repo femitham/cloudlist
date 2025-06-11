@@ -32,10 +32,17 @@ func (d *gkeProvider) GetResource(ctx context.Context) (*schema.Resources, error
 	list := schema.NewResources()
 
 	for _, project := range d.projects {
+		// Get cluster configs and metadata
+		clusters, err := d.getGKEClusters(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+
 		kubeConfig, err := d.getK8sClusterConfigs(ctx, project)
 		if err != nil {
 			return nil, err
 		}
+
 		// Just list all the namespaces found in the project to test the API.
 		for clusterName := range kubeConfig.Clusters {
 			cfg, err := clientcmd.NewNonInteractiveClientConfig(*kubeConfig, clusterName, &clientcmd.ConfigOverrides{CurrentContext: clusterName}, nil).ClientConfig()
@@ -56,13 +63,47 @@ func (d *gkeProvider) GetResource(ctx context.Context) (*schema.Resources, error
 			}
 			k8sIngressProvider := k8s.NewK8sIngressProvider(d.id, ingress)
 			ingressHosts, _ := k8sIngressProvider.GetResource(ctx)
+
+			// Find cluster metadata
+			var cluster *container.Cluster
+			for _, c := range clusters {
+				if fmt.Sprintf("gke_%s_%s_%s", project, c.Zone, c.Name) == clusterName {
+					cluster = c
+					break
+				}
+			}
+
+			// Add cluster metadata to each ingress resource
 			for _, ingressHost := range ingressHosts.Items {
 				ingressHost.Service = d.name()
+				ingressHost.ProjectID = project
+				if cluster != nil {
+					ingressHost.Zone = cluster.Zone
+					ingressHost.Name = cluster.Name
+					ingressHost.Type = cluster.NodeConfig.MachineType
+					ingressHost.Status = cluster.Status
+
+					// Convert cluster labels to tags
+					tags := make(map[string]string)
+					for k, v := range cluster.ResourceLabels {
+						tags[k] = v
+					}
+					ingressHost.Tags = tags
+					ingressHost.CreatedAt = cluster.CreateTime
+				}
 			}
 			list.Merge(ingressHosts)
 		}
 	}
 	return list, nil
+}
+
+func (d *gkeProvider) getGKEClusters(ctx context.Context, projectId string) ([]*container.Cluster, error) {
+	resp, err := d.svc.Projects.Zones.Clusters.List(projectId, "-").Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("clusters list project=%s: %w", projectId, err)
+	}
+	return resp.Clusters, nil
 }
 
 func (d *gkeProvider) getK8sClusterConfigs(ctx context.Context, projectId string) (*api.Config, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 	run "google.golang.org/api/run/v1"
@@ -24,17 +25,45 @@ func (d *cloudRunProvider) GetResource(ctx context.Context) (*schema.Resources, 
 	list := schema.NewResources()
 	services, err := d.getServices()
 	if err != nil {
-		return nil, fmt.Errorf("could not get services: %s", err)
+		return nil, FormatGCPError(err)
 	}
-	
+
 	for _, service := range services {
 		serviceUrl, _ := url.Parse(service.Status.Url)
+
+		// Get project ID from the parent project
+		projectID := ""
+		for _, project := range d.projects {
+			if strings.HasPrefix(service.Metadata.Name, fmt.Sprintf("projects/%s/", project)) {
+				projectID = project
+				break
+			}
+		}
+
+		// Extract location from service name
+		// Format: projects/{project}/locations/{location}/services/{service}
+		parts := strings.Split(service.Metadata.Name, "/")
+		location := ""
+		if len(parts) >= 4 {
+			location = parts[3]
+		}
+
+		// Extract labels/tags
+		tags := make(map[string]string)
+		for k, v := range service.Metadata.Labels {
+			tags[k] = v
+		}
+
 		resource := &schema.Resource{
-			ID:       d.id,
-			Provider: providerName,
-			DNSName:  serviceUrl.Hostname(),
-			Public:   d.isPublicService(service.Metadata.Name),
-			Service:  d.name(),
+			ID:        d.id,
+			Provider:  providerName,
+			DNSName:   serviceUrl.Hostname(),
+			Public:    d.isPublicService(service.Metadata.SelfLink),
+			Service:   d.name(),
+			ProjectID: projectID,
+			Region:    location,
+			Name:      service.Metadata.Name,
+			Tags:      tags,
 		}
 		list.Append(resource)
 	}

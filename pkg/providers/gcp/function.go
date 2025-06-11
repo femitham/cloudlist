@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 	"google.golang.org/api/cloudfunctions/v1"
@@ -34,12 +35,43 @@ func (d *cloudFunctionsProvider) GetResource(ctx context.Context) (*schema.Resou
 		if err != nil {
 			continue
 		}
+
+		// Extract region from function name
+		// Format: projects/{project}/locations/{location}/functions/{function}
+		parts := strings.Split(function.Name, "/")
+		var region string
+		if len(parts) >= 4 {
+			region = parts[3]
+		}
+
+		// Get project ID from the parent project
+		projectID := ""
+		for _, project := range d.projects {
+			if strings.HasPrefix(function.Name, fmt.Sprintf("projects/%s/", project)) {
+				projectID = project
+				break
+			}
+		}
+
+		// Convert function labels to tags
+		tags := make(map[string]string)
+		for k, v := range function.Labels {
+			tags[k] = v
+		}
+
 		resource := &schema.Resource{
-			ID:       d.id,
-			Provider: providerName,
-			DNSName:  funcUrl.Hostname(),
-			Public:   d.isPublicFunction(function.Name),
-			Service:  d.name(),
+			ID:        d.id,
+			Provider:  providerName,
+			DNSName:   funcUrl.Hostname(),
+			Public:    d.isPublicFunction(function.Name),
+			Service:   d.name(),
+			ProjectID: projectID,
+			Region:    region,
+			Name:      function.Name[strings.LastIndex(function.Name, "/")+1:],
+			Type:      function.Runtime,
+			Status:    function.Status,
+			Tags:      tags,
+			CreatedAt: function.UpdateTime, // Cloud Functions API doesn't expose creation time
 		}
 		list.Append(resource)
 	}

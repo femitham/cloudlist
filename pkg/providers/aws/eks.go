@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/eks"
+	"github.com/aws/aws-sdk-go/service/sts"
 	"github.com/pkg/errors"
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,32 +57,53 @@ func (ep *eksProvider) GetResource(ctx context.Context) (*schema.Resources, erro
 
 func (ep *eksProvider) listEKSResources(eksClient *eks.EKS) (*schema.Resources, error) {
 	list := schema.NewResources()
-	req := &eks.ListClustersInput{
-		MaxResults: aws.Int64(100),
+
+	// Get account ID from STS
+	stsClient := sts.New(ep.session)
+	identity, err := stsClient.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	if err != nil {
+		return nil, errors.Wrap(err, "could not get account ID")
 	}
+	accountID := aws.StringValue(identity.Account)
+
+	// Get current region from session
+	region := *eksClient.Config.Region
+
+	req := &eks.ListClustersInput{}
 	for {
 		clustersOutput, err := eksClient.ListClusters(req)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not list EKS clusters")
 		}
-		// Iterate over each cluster
+
 		for _, clusterName := range clustersOutput.Clusters {
-			// describe cluster
-			clusterOutput, err := eksClient.DescribeCluster(&eks.DescribeClusterInput{
+			// Get cluster details
+			cluster, err := eksClient.DescribeCluster(&eks.DescribeClusterInput{
 				Name: clusterName,
 			})
 			if err != nil {
-				return nil, errors.Wrapf(err, "could not describe EKS cluster: %s", *clusterName)
+				continue
 			}
-			clientset, err := newClientset(clusterOutput.Cluster)
+
+			// Convert cluster tags to map
+			tags := make(map[string]string)
+			for k, v := range cluster.Cluster.Tags {
+				if v != nil {
+					tags[k] = *v
+				}
+			}
+
+			// Get cluster nodes
+			clientset, err := newClientset(cluster.Cluster)
 			if err != nil {
-				return nil, errors.Wrapf(err, "could not create clientset for EKS cluster: %s", *clusterName)
+				continue
 			}
+
 			nodes, err := clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
 			if err != nil {
-				return nil, errors.Wrapf(err, "could not list nodes for EKS cluster: %s", *clusterName)
+				continue
 			}
-			// Iterate over each node
+
 			for _, node := range nodes.Items {
 				var podIPs []string
 				// List IP addresses of pods running on the node
@@ -105,6 +127,13 @@ func (ep *eksProvider) listEKSResources(eksClient *eks.EKS) (*schema.Resources, 
 					PublicIPv4: nodeIP,
 					Public:     true,
 					Service:    ep.name(),
+					AccountID:  accountID,
+					Region:     region,
+					Tags:       tags,
+					Name:       aws.StringValue(cluster.Cluster.Name),
+					Type:       aws.StringValue(cluster.Cluster.Version),
+					Status:     aws.StringValue(cluster.Cluster.Status),
+					CreatedAt:  aws.TimeValue(cluster.Cluster.CreatedAt).String(),
 				})
 				// Pod IPs
 				for _, podIP := range podIPs {
@@ -114,6 +143,13 @@ func (ep *eksProvider) listEKSResources(eksClient *eks.EKS) (*schema.Resources, 
 						PrivateIpv4: podIP,
 						Public:      false,
 						Service:     ep.name(),
+						AccountID:   accountID,
+						Region:      region,
+						Tags:        tags,
+						Name:        aws.StringValue(cluster.Cluster.Name),
+						Type:        aws.StringValue(cluster.Cluster.Version),
+						Status:      aws.StringValue(cluster.Cluster.Status),
+						CreatedAt:   aws.TimeValue(cluster.Cluster.CreatedAt).String(),
 					})
 				}
 			}

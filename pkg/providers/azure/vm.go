@@ -72,6 +72,16 @@ func (d *vmProvider) processResourceGroup(ctx context.Context, group string) ([]
 	for _, vm := range vmList {
 		nics := *vm.NetworkProfile.NetworkInterfaces
 
+		// Extract VM metadata
+		tags := make(map[string]string)
+		if vm.Tags != nil {
+			for k, v := range vm.Tags {
+				if v != nil {
+					tags[k] = *v
+				}
+			}
+		}
+
 		for _, nic := range nics {
 			res, err := azure.ParseResourceID(*nic.ID)
 			if err != nil {
@@ -107,10 +117,14 @@ func (d *vmProvider) processResourceGroup(ctx context.Context, group string) ([]
 				}
 
 				resource := &schema.Resource{
-					Provider:    providerName,
-					ID:          d.id,
-					PrivateIpv4: *ipConfig.PrivateIPAddress,
-					Service:     d.name(),
+					Provider:       providerName,
+					ID:             d.id,
+					PrivateIpv4:    *ipConfig.PrivateIPAddress,
+					Service:        d.name(),
+					SubscriptionID: d.SubscriptionID,
+					Region:         *vm.Location,
+					Tags:           tags,
+					Name:           *vm.Name,
 				}
 
 				if publicIP.PublicIPAddressVersion == network.IPv4 {
@@ -123,10 +137,14 @@ func (d *vmProvider) processResourceGroup(ctx context.Context, group string) ([]
 
 				if publicIP.DNSSettings.Fqdn != nil {
 					resources = append(resources, &schema.Resource{
-						Provider: providerName,
-						ID:       d.id,
-						DNSName:  *publicIP.DNSSettings.Fqdn,
-						Service:  d.name(),
+						Provider:       providerName,
+						ID:             d.id,
+						DNSName:        *publicIP.DNSSettings.Fqdn,
+						Service:        d.name(),
+						SubscriptionID: d.SubscriptionID,
+						Region:         *vm.Location,
+						Tags:           tags,
+						Name:           *vm.Name,
 					})
 				}
 			}
