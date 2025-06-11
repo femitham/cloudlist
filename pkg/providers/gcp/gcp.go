@@ -28,7 +28,7 @@ type Provider struct {
 	run       *run.APIService
 	services  schema.ServiceMap
 	id        string
-	projects  []string
+	projects  []*cloudresourcemanager.Project
 }
 
 var Services = []string{"dns", "gke", "compute", "s3", "cloud-function", "cloud-run"}
@@ -129,7 +129,7 @@ func New(options schema.OptionBlock) (*Provider, error) {
 		provider.run = cloudRunService
 	}
 
-	projects := []string{}
+	projects := []*cloudresourcemanager.Project{}
 	manager, err := cloudresourcemanager.NewService(context.Background(), creds)
 	if err != nil {
 		return nil, FormatGCPError(err)
@@ -137,7 +137,7 @@ func New(options schema.OptionBlock) (*Provider, error) {
 	list := manager.Projects.List()
 	err = list.Pages(context.Background(), func(resp *cloudresourcemanager.ListProjectsResponse) error {
 		for _, project := range resp.Projects {
-			projects = append(projects, project.ProjectId)
+			projects = append(projects, project)
 		}
 		return nil
 	})
@@ -184,7 +184,11 @@ func (p *Provider) Resources(ctx context.Context) (*schema.Resources, error) {
 	if p.gke != nil {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
-			GKEProvider := &gkeProvider{svc: p.gke, id: p.id, projects: p.projects}
+			projectIDs := make([]string, len(p.projects))
+			for i, proj := range p.projects {
+				projectIDs[i] = proj.ProjectId
+			}
+			GKEProvider := &gkeProvider{svc: p.gke, id: p.id, projects: projectIDs}
 			return GKEProvider.GetResource(ctx)
 		})
 	}
@@ -192,7 +196,11 @@ func (p *Provider) Resources(ctx context.Context) (*schema.Resources, error) {
 	if p.compute != nil {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
-			VMProvider := &cloudVMProvider{compute: p.compute, id: p.id, projects: p.projects}
+			projectIDs := make([]string, len(p.projects))
+			for i, proj := range p.projects {
+				projectIDs[i] = proj.ProjectId
+			}
+			VMProvider := &cloudVMProvider{compute: p.compute, id: p.id, projects: projectIDs}
 			return VMProvider.GetResource(ctx)
 		})
 	}
@@ -200,23 +208,35 @@ func (p *Provider) Resources(ctx context.Context) (*schema.Resources, error) {
 	if p.storage != nil {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
-			cloudStorageProvider := &cloudStorageProvider{id: p.id, storage: p.storage, projects: p.projects}
-			return cloudStorageProvider.GetResource(ctx)
+			projectIDs := make([]string, len(p.projects))
+			for i, proj := range p.projects {
+				projectIDs[i] = proj.ProjectId
+			}
+			storageProvider := &cloudStorageProvider{storage: p.storage, id: p.id, projects: projectIDs}
+			return storageProvider.GetResource(ctx)
 		})
 	}
 
 	if p.functions != nil {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
-			cloudFunctionsProvider := &cloudFunctionsProvider{id: p.id, functions: p.functions, projects: p.projects}
-			return cloudFunctionsProvider.GetResource(ctx)
+			projectIDs := make([]string, len(p.projects))
+			for i, proj := range p.projects {
+				projectIDs[i] = proj.ProjectId
+			}
+			functionsProvider := &cloudFunctionsProvider{functions: p.functions, id: p.id, projects: projectIDs}
+			return functionsProvider.GetResource(ctx)
 		})
 	}
 
 	if p.run != nil {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
-			cloudRunProvider := &cloudRunProvider{id: p.id, run: p.run, projects: p.projects}
+			projectIDs := make([]string, len(p.projects))
+			for i, proj := range p.projects {
+				projectIDs[i] = proj.ProjectId
+			}
+			cloudRunProvider := &cloudRunProvider{run: p.run, id: p.id, projects: projectIDs}
 			return cloudRunProvider.GetResource(ctx)
 		})
 	}
@@ -262,23 +282,23 @@ func (p *Provider) Verify(ctx context.Context) error {
 	for _, project := range p.projects {
 		var success bool
 		if p.compute != nil {
-			if _, err = p.compute.Regions.List(project).Do(); err == nil {
+			if _, err = p.compute.Regions.List(project.ProjectId).Do(); err == nil {
 				success = true
 			}
 		} else if p.dns != nil {
-			if _, err = p.dns.ManagedZones.List(project).Do(); err == nil {
+			if _, err = p.dns.ManagedZones.List(project.ProjectId).Do(); err == nil {
 				success = true
 			}
 		} else if p.storage != nil {
-			if _, err = p.storage.Buckets.List(project).Do(); err == nil {
+			if _, err = p.storage.Buckets.List(project.ProjectId).Do(); err == nil {
 				success = true
 			}
 		} else if p.functions != nil {
-			if _, err = p.functions.Projects.Locations.List(project).Do(); err == nil {
+			if _, err = p.functions.Projects.Locations.List(project.ProjectId).Do(); err == nil {
 				success = true
 			}
 		} else if p.run != nil {
-			if _, err = p.run.Projects.Locations.List(project).Do(); err == nil {
+			if _, err = p.run.Projects.Locations.List(project.ProjectId).Do(); err == nil {
 				success = true
 			}
 		}
