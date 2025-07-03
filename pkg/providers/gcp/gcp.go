@@ -2,6 +2,7 @@ package gcp
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -213,10 +214,14 @@ func (p *Provider) Resources(ctx context.Context) (*schema.Resources, error) {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
 			projectIDs := make([]string, len(p.projects))
+			projectNumberToMeta := make(map[string]struct{ID, Name string})
 			for i, proj := range p.projects {
 				projectIDs[i] = proj.ProjectId
+				if proj.ProjectNumber != 0 {
+					projectNumberToMeta[fmt.Sprintf("%d", proj.ProjectNumber)] = struct{ID, Name string}{proj.ProjectId, proj.Name}
+				}
 			}
-			storageProvider := &cloudStorageProvider{storage: p.storage, id: p.id, projects: projectIDs}
+			storageProvider := &cloudStorageProvider{storage: p.storage, id: p.id, projects: projectIDs, projectNumberToMeta: projectNumberToMeta}
 			return storageProvider.GetResource(ctx)
 		})
 	}

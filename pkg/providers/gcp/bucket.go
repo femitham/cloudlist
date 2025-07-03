@@ -14,6 +14,7 @@ type cloudStorageProvider struct {
 	id       string
 	storage  *storage.Service
 	projects []string
+	projectNumberToMeta map[string]struct{ID, Name string} // project number string -> {ID, Name}
 }
 
 func (d *cloudStorageProvider) name() string {
@@ -24,19 +25,19 @@ func (d *cloudStorageProvider) name() string {
 func (d *cloudStorageProvider) GetResource(ctx context.Context) (*schema.Resources, error) {
 	list := schema.NewResources()
 
-	// Build a map from project number to project ID
-	projectNumberToID := make(map[string]string)
-	for _, p := range d.projects {
-		projectNumberToID[p] = p // d.projects is []string of project IDs, so we need to fetch project numbers from API
-	}
-
 	for _, project := range d.projects {
 		bucketsService := d.storage.Buckets.List(project)
 		_ = bucketsService.Pages(context.Background(), func(bal *storage.Buckets) error {
 			for _, bucket := range bal.Items {
 				projectID := ""
+				projectName := ""
+				projectNumber := ""
 				if bucket.ProjectNumber != 0 {
-					projectID = lookupProjectIDByNumber(bucket.ProjectNumber, projectNumberToID)
+					projectNumber = fmt.Sprintf("%d", bucket.ProjectNumber)
+					if meta, ok := d.projectNumberToMeta[projectNumber]; ok {
+						projectID = meta.ID
+						projectName = meta.Name
+					}
 				}
 				resource := &schema.Resource{
 					ID:        d.id,
@@ -45,6 +46,10 @@ func (d *cloudStorageProvider) GetResource(ctx context.Context) (*schema.Resourc
 					Public:    d.isBucketPublic(bucket.Name),
 					Service:   d.name(),
 					ProjectID: projectID,
+					Tags: map[string]string{
+						"project_name": projectName,
+						"project_number": projectNumber,
+					},
 				}
 				list.Append(resource)
 			}
