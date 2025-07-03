@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -109,8 +110,9 @@ func (s *s3Provider) getS3Resources(s3Client *s3.S3) (*schema.Resources, error) 
 	return list, nil
 }
 
-// isBucketPublic checks if the S3 bucket is public by inspecting its ACL for AllUsers/AuthenticatedUsers grants
+// isBucketPublic checks if the S3 bucket is public by inspecting its ACL and bucket policy for public grants
 func (s *s3Provider) isBucketPublic(s3Client *s3.S3, bucketName string) bool {
+	// Check ACL
 	aclInput := &s3.GetBucketAclInput{Bucket: aws.String(bucketName)}
 	aclOutput, err := s3Client.GetBucketAcl(aclInput)
 	if err == nil {
@@ -122,6 +124,59 @@ func (s *s3Provider) isBucketPublic(s3Client *s3.S3, bucketName string) bool {
 						return true
 					}
 				}
+			}
+		}
+	}
+
+	// Check Bucket Policy
+	policyInput := &s3.GetBucketPolicyInput{Bucket: aws.String(bucketName)}
+	policyOutput, err := s3Client.GetBucketPolicy(policyInput)
+	if err == nil && policyOutput != nil && policyOutput.Policy != nil {
+		var policyDoc struct {
+			Statement []struct {
+				Effect    string      `json:"Effect"`
+				Principal interface{} `json:"Principal"`
+				Action    interface{} `json:"Action"`
+				Resource  interface{} `json:"Resource"`
+				Condition interface{} `json:"Condition"`
+			}
+		}
+		err := json.Unmarshal([]byte(*policyOutput.Policy), &policyDoc)
+		if err == nil {
+			for _, stmt := range policyDoc.Statement {
+				if stmt.Effect == "Allow" && isPrincipalPublic(stmt.Principal) && hasGetObjectAction(stmt.Action) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// isPrincipalPublic returns true if the Principal is * or contains *
+func isPrincipalPublic(principal interface{}) bool {
+	switch v := principal.(type) {
+	case string:
+		return v == "*"
+	case map[string]interface{}:
+		for _, val := range v {
+			if val == "*" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasGetObjectAction returns true if the Action includes s3:GetObject or is "*"
+func hasGetObjectAction(action interface{}) bool {
+	switch v := action.(type) {
+	case string:
+		return v == "s3:GetObject" || v == "*"
+	case []interface{}:
+		for _, a := range v {
+			if a == "s3:GetObject" || a == "*" {
+				return true
 			}
 		}
 	}
