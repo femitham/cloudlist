@@ -26,15 +26,22 @@ func (d *cloudStorageProvider) GetResource(ctx context.Context) (*schema.Resourc
 	if err != nil {
 		return nil, fmt.Errorf("could not get buckets: %s", err)
 	}
-	for _, bucket := range buckets {
-		resource := &schema.Resource{
-			ID:       d.id,
-			Provider: providerName,
-			DNSName:  fmt.Sprintf("%s.storage.googleapis.com", bucket.Name),
-			Public:   d.isBucketPublic(bucket.Name),
-			Service:  d.name(),
-		}
-		list.Append(resource)
+	for _, project := range d.projects {
+		bucketsService := d.storage.Buckets.List(project)
+		_ = bucketsService.Pages(context.Background(), func(bal *storage.Buckets) error {
+			for _, bucket := range bal.Items {
+				resource := &schema.Resource{
+					ID:        d.id,
+					Provider:  providerName,
+					DNSName:   fmt.Sprintf("%s.storage.googleapis.com", bucket.Name),
+					Public:    d.isBucketPublic(bucket.Name),
+					Service:   d.name(),
+					ProjectID: project,
+				}
+				list.Append(resource)
+			}
+			return nil
+		})
 	}
 	return list, nil
 }

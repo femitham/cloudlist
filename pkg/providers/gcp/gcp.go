@@ -176,7 +176,11 @@ func (p *Provider) Resources(ctx context.Context) (*schema.Resources, error) {
 	if p.dns != nil {
 		wg.Add(1)
 		go fetchResources(func(ctx context.Context) (*schema.Resources, error) {
-			cloudDNSProvider := &cloudDNSProvider{dns: p.dns, id: p.id, projects: p.projects}
+			projectIDs := make([]string, len(p.projects))
+			for i, proj := range p.projects {
+				projectIDs[i] = proj.ProjectId
+			}
+			cloudDNSProvider := &cloudDNSProvider{dns: p.dns, id: p.id, projects: projectIDs}
 			return cloudDNSProvider.GetResource(ctx)
 		})
 	}
