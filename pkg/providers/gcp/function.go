@@ -27,7 +27,9 @@ func (d *cloudFunctionsProvider) GetResource(ctx context.Context) (*schema.Resou
 	if err != nil {
 		return nil, fmt.Errorf("could not get functions: %s", err)
 	}
-	for _, function := range functions {
+	for _, fn := range functions {
+		function := fn.function
+		projectID := fn.projectID
 		if function == nil || function.HttpsTrigger == nil {
 			continue
 		}
@@ -42,15 +44,6 @@ func (d *cloudFunctionsProvider) GetResource(ctx context.Context) (*schema.Resou
 		var region string
 		if len(parts) >= 4 {
 			region = parts[3]
-		}
-
-		// Get project ID from the parent project
-		projectID := ""
-		for _, project := range d.projects {
-			if strings.HasPrefix(function.Name, fmt.Sprintf("projects/%s/", project)) {
-				projectID = project
-				break
-			}
 		}
 
 		// Convert function labels to tags
@@ -78,12 +71,19 @@ func (d *cloudFunctionsProvider) GetResource(ctx context.Context) (*schema.Resou
 	return list, nil
 }
 
-func (d *cloudFunctionsProvider) getFunctions() ([]*cloudfunctions.CloudFunction, error) {
-	var functions []*cloudfunctions.CloudFunction
+type projectFunction struct {
+	projectID string
+	function  *cloudfunctions.CloudFunction
+}
+
+func (d *cloudFunctionsProvider) getFunctions() ([]projectFunction, error) {
+	var functions []projectFunction
 	for _, project := range d.projects {
 		functionsService := d.functions.Projects.Locations.Functions.List(fmt.Sprintf("projects/%s/locations/-", project))
 		_ = functionsService.Pages(context.Background(), func(fal *cloudfunctions.ListFunctionsResponse) error {
-			functions = append(functions, fal.Functions...)
+			for _, fn := range fal.Functions {
+				functions = append(functions, projectFunction{projectID: project, function: fn})
+			}
 			return nil
 		})
 	}

@@ -167,7 +167,7 @@ type Resource struct {
 	// DNSName is the DNS name of the resource
 	DNSName string `json:"dns_name,omitempty"`
 	// ProjectID is the cloud provider project ID (e.g. GCP project ID)
-	ProjectID string `json:"project_id,omitempty"`
+	ProjectID string `json:"project_id"`
 	// SubscriptionID is the cloud provider subscription ID (e.g. Azure subscription ID)
 	SubscriptionID string `json:"subscription_id,omitempty"`
 	// AccountID is the cloud provider account ID (e.g. AWS account ID)

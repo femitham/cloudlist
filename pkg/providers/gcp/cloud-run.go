@@ -28,17 +28,10 @@ func (d *cloudRunProvider) GetResource(ctx context.Context) (*schema.Resources, 
 		return nil, FormatGCPError(err)
 	}
 
-	for _, service := range services {
+	for _, svc := range services {
+		service := svc.service
+		projectID := svc.projectID
 		serviceUrl, _ := url.Parse(service.Status.Url)
-
-		// Get project ID from the parent project
-		projectID := ""
-		for _, project := range d.projects {
-			if strings.HasPrefix(service.Metadata.Name, fmt.Sprintf("projects/%s/", project)) {
-				projectID = project
-				break
-			}
-		}
 
 		// Extract location from service name
 		// Format: projects/{project}/locations/{location}/services/{service}
@@ -70,8 +63,13 @@ func (d *cloudRunProvider) GetResource(ctx context.Context) (*schema.Resources, 
 	return list, nil
 }
 
-func (d *cloudRunProvider) getServices() ([]*run.Service, error) {
-	var services []*run.Service
+type projectService struct {
+	projectID string
+	service   *run.Service
+}
+
+func (d *cloudRunProvider) getServices() ([]projectService, error) {
+	var services []projectService
 	for _, project := range d.projects {
 		locationsService := d.run.Projects.Locations.List(fmt.Sprintf("projects/%s", project))
 		locationsResponse, err := locationsService.Do()
@@ -85,7 +83,9 @@ func (d *cloudRunProvider) getServices() ([]*run.Service, error) {
 			if err != nil {
 				continue
 			}
-			services = append(services, servicesResponse.Items...)
+			for _, svc := range servicesResponse.Items {
+				services = append(services, projectService{projectID: project, service: svc})
+			}
 		}
 	}
 	return services, nil
