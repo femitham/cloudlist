@@ -100,21 +100,23 @@ func (i *instanceProvider) getEC2Resources(ec2Client *ec2.EC2) (*schema.Resource
 						CreatedAt:   aws.TimeValue(instance.LaunchTime).String(),
 					})
 				}
-				list.Append(&schema.Resource{
-					ID:         i.options.Id,
-					Provider:   providerName,
-					PublicIPv4: ip4,
-					PublicIPv6: ip6,
-					Public:     true,
-					Service:    i.name(),
-					AccountID:  accountID,
-					Region:     aws.StringValue(instance.Placement.AvailabilityZone),
-					Tags:       tags,
-					Name:       getNameFromTags(instance.Tags),
-					Type:       aws.StringValue(instance.InstanceType),
-					Status:     aws.StringValue(instance.State.Name),
-					CreatedAt:  aws.TimeValue(instance.LaunchTime).String(),
-				})
+				if ip4 != "" {
+					list.Append(&schema.Resource{
+						ID:         i.options.Id,
+						Provider:   providerName,
+						PublicIPv4: ip4,
+						PublicIPv6: ip6,
+						Public:     true,
+						Service:    i.name(),
+						AccountID:  accountID,
+						Region:     aws.StringValue(instance.Placement.AvailabilityZone),
+						Tags:       tags,
+						Name:       getNameFromTags(instance.Tags),
+						Type:       aws.StringValue(instance.InstanceType),
+						Status:     aws.StringValue(instance.State.Name),
+						CreatedAt:  aws.TimeValue(instance.LaunchTime).String(),
+					})
+				}
 			}
 		}
 		if aws.StringValue(resp.NextToken) == "" {

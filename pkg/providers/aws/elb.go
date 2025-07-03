@@ -62,11 +62,15 @@ func (ep *elbProvider) listELBResources(elbClient *elb.ELB, ec2Client *ec2.EC2) 
 
 	for _, lb := range loadBalancerDescriptions {
 		elbDNS := *lb.DNSName
+		isPublic := true
+		if len(elbDNS) >= 9 && elbDNS[:9] == "internal-" {
+			isPublic = false
+		}
 		resource := &schema.Resource{
 			Provider: "aws",
 			ID:       *lb.LoadBalancerName,
 			DNSName:  elbDNS,
-			Public:   true,
+			Public:   isPublic,
 			Service:  ep.name(),
 		}
 		list.Append(resource)

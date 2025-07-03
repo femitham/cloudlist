@@ -62,11 +62,15 @@ func (ep *elbV2Provider) listELBV2Resources(albClient *elbv2.ELBV2, ec2Client *e
 
 	for _, lb := range loadBalancers {
 		albDNS := *lb.DNSName
+		isPublic := true
+		if len(albDNS) >= 9 && albDNS[:9] == "internal-" {
+			isPublic = false
+		}
 		resource := &schema.Resource{
 			Provider: "aws",
 			ID:       *lb.LoadBalancerName,
 			DNSName:  albDNS,
-			Public:   true,
+			Public:   isPublic,
 			Service:  ep.name(),
 		}
 		list.Append(resource)

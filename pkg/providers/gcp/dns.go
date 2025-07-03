@@ -3,6 +3,7 @@ package gcp
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
 	"google.golang.org/api/dns/v1"
@@ -58,16 +59,21 @@ func (d *cloudDNSProvider) parseRecordsForResourceSet(r *dns.ResourceRecordSetsL
 		}
 
 		for _, data := range resource.Rrdatas {
-			// Extract tags from zone labels
 			tags := make(map[string]string)
 			for k, v := range zone.Labels {
 				tags[k] = v
 			}
-			// Add project metadata as tags
 			tags["project_name"] = projectID
 
+			public := false
+			if resource.Type == "A" || resource.Type == "AAAA" {
+				public = isPublicIP(data)
+			} else if resource.Type == "CNAME" {
+				public = !isPrivateDNSName(data)
+			}
+
 			baseResource := &schema.Resource{
-				Public:    true,
+				Public:    public,
 				ID:        d.id,
 				Provider:  providerName,
 				Service:   d.name(),
@@ -94,4 +100,24 @@ func (d *cloudDNSProvider) parseRecordsForResourceSet(r *dns.ResourceRecordSetsL
 		}
 	}
 	return list
+}
+
+func isPublicIP(ip string) bool {
+	// Simple check for RFC1918 private IPv4 ranges and link-local
+	if strings.HasPrefix(ip, "10.") || strings.HasPrefix(ip, "192.168.") || strings.HasPrefix(ip, "172.") {
+		return false
+	}
+	if strings.HasPrefix(ip, "127.") || strings.HasPrefix(ip, "169.254.") {
+		return false
+	}
+	// For IPv6, check for fc00::/7 (ULA) and fe80::/10 (link-local)
+	if strings.HasPrefix(ip, "fc") || strings.HasPrefix(ip, "fd") || strings.HasPrefix(ip, "fe80") {
+		return false
+	}
+	return true
+}
+
+func isPrivateDNSName(name string) bool {
+	// Simple heuristic: treat .internal, .local, .lan, .corp as private
+	return strings.HasSuffix(name, ".internal") || strings.HasSuffix(name, ".local") || strings.HasSuffix(name, ".lan") || strings.HasSuffix(name, ".corp")
 }

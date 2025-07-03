@@ -93,7 +93,7 @@ func (s *s3Provider) getS3Resources(s3Client *s3.S3) (*schema.Resources, error) 
 
 		list.Append(&schema.Resource{
 			ID:        s.options.Id,
-			Public:    true,
+			Public:    s.isBucketPublic(s3Client, bucketName),
 			DNSName:   fmt.Sprintf("%s.s3.amazonaws.com", bucketName),
 			Provider:  providerName,
 			Service:   s.name(),
@@ -107,6 +107,25 @@ func (s *s3Provider) getS3Resources(s3Client *s3.S3) (*schema.Resources, error) 
 		})
 	}
 	return list, nil
+}
+
+// isBucketPublic checks if the S3 bucket is public by inspecting its ACL for AllUsers/AuthenticatedUsers grants
+func (s *s3Provider) isBucketPublic(s3Client *s3.S3, bucketName string) bool {
+	aclInput := &s3.GetBucketAclInput{Bucket: aws.String(bucketName)}
+	aclOutput, err := s3Client.GetBucketAcl(aclInput)
+	if err == nil {
+		for _, grant := range aclOutput.Grants {
+			if grant.Grantee != nil && grant.Grantee.URI != nil {
+				if *grant.Grantee.URI == "http://acs.amazonaws.com/groups/global/AllUsers" ||
+				   *grant.Grantee.URI == "http://acs.amazonaws.com/groups/global/AuthenticatedUsers" {
+					if *grant.Permission == "READ" || *grant.Permission == "FULL_CONTROL" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (s *s3Provider) getS3Clients() []*s3.S3 {

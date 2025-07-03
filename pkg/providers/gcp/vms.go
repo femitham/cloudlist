@@ -70,9 +70,10 @@ func (d *cloudVMProvider) GetResource(ctx context.Context) (*schema.Resources, e
 							machineType = machineType[idx+1:]
 						}
 
+						public := cfg.NatIP != ""
 						resourcesChan <- &schema.Resource{
 							ID:         d.id,
-							Public:     true,
+							Public:     public,
 							Provider:   providerName,
 							PublicIPv4: cfg.NatIP,
 							PublicIPv6: cfg.ExternalIpv6,
