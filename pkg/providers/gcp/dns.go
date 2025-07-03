@@ -2,11 +2,9 @@ package gcp
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
-	"google.golang.org/api/cloudresourcemanager/v1"
 	"google.golang.org/api/dns/v1"
 )
 

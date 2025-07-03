@@ -22,10 +22,6 @@ func (d *cloudStorageProvider) name() string {
 func (d *cloudStorageProvider) GetResource(ctx context.Context) (*schema.Resources, error) {
 	list := schema.NewResources()
 
-	buckets, err := d.getBuckets()
-	if err != nil {
-		return nil, fmt.Errorf("could not get buckets: %s", err)
-	}
 	for _, project := range d.projects {
 		bucketsService := d.storage.Buckets.List(project)
 		_ = bucketsService.Pages(context.Background(), func(bal *storage.Buckets) error {
