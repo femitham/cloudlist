@@ -32,7 +32,7 @@ type Provider struct {
 	projects  []*cloudresourcemanager.Project
 }
 
-var Services = []string{"dns", "gke", "compute", "s3", "cloud-function", "cloud-run"}
+var Services = []string{"dns", "gke", "compute", "gcs", "cloud-function", "cloud-run"}
 
 const serviceAccountJSON = "gcp_service_account_key"
 const providerName = "gcp"
@@ -107,7 +107,7 @@ func New(options schema.OptionBlock) (*Provider, error) {
 		provider.gke = containerService
 	}
 
-	if services.Has("s3") {
+	if services.Has("gcs") {
 		storageService, err := storage.NewService(context.Background(), creds)
 		if err != nil {
 			return nil, FormatGCPError(err)

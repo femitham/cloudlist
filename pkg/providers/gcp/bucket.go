@@ -18,7 +18,7 @@ type cloudStorageProvider struct {
 }
 
 func (d *cloudStorageProvider) name() string {
-	return "s3"
+	return "gcs"
 }
 
 // GetResource returns all the storage resources in the store for a provider.
@@ -59,16 +59,7 @@ func (d *cloudStorageProvider) GetResource(ctx context.Context) (*schema.Resourc
 	return list, nil
 }
 
-// lookupProjectIDByNumber maps a project number to a project ID using the known projects list
-func lookupProjectIDByNumber(projectNumber uint64, projectNumberToID map[string]string) string {
-	numStr := strconv.FormatUint(projectNumber, 10)
-	for id := range projectNumberToID {
-		if strings.HasSuffix(id, numStr) { // fallback: try to match by suffix if possible
-			return id
-		}
-	}
-	return ""
-}
+
 
 func (d *cloudStorageProvider) getBuckets() ([]*storage.Bucket, error) {
 	var buckets []*storage.Bucket
