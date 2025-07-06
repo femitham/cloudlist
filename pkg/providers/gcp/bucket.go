@@ -3,7 +3,6 @@ package gcp
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/projectdiscovery/cloudlist/pkg/schema"
